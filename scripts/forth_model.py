@@ -40,7 +40,7 @@ def train(model, epoch, batch_size, training_set, device):
 
     # Define the loss function and the optimizer used.
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
     running_loss = 0.0
 
@@ -163,7 +163,8 @@ def main():
     for fold in Path.cwd().joinpath("data", quality[0], "folds").glob("*"):
         dataset = CustomImageDataset(fold, True)
         train_dataset, val_dataset = dataset.split_data()
-        h = train_dataset[0]
+
+        dataset.get_sequence_length_freq()
 
         # Define model.
         model = CustomCnn(classes)
