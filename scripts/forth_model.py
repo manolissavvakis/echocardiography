@@ -164,7 +164,7 @@ def main():
         dataset = CustomImageDataset(fold, True)
         train_dataset, val_dataset = dataset.split_data()
 
-        dataset.get_sequence_length_freq()
+        dataset.get_most_frequent_length()
 
         # Define model.
         model = CustomCnn(classes)

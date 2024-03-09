@@ -11,6 +11,7 @@ from torch.utils.data import Dataset, Subset
 import torchvision.transforms as transforms
 from configparser import ConfigParser
 from matplotlib import pyplot as plt
+from collections import Counter
 
 
 class CustomImageDataset(Dataset):
@@ -65,7 +66,7 @@ class CustomImageDataset(Dataset):
 
             image, label = self.transformations(image, label)
 
-        return image, label
+        return image, label, patient_dir
 
     def _get_patient_data(self, idx):
 
@@ -119,24 +120,34 @@ class CustomImageDataset(Dataset):
 
         return image, label
 
-    def get_sequence_length_freq(self):
+    def get_sequence_length(self, idx):
+        patient_file, _ = self._get_patient_data(idx)
+        patient_dir = patient_file[:11]
+        view = patient_file[12:15]
+        info_file = Path.cwd().joinpath("data", "database_nifti", patient_dir, f"Info_{view}.cfg")
+        
+        parser = ConfigParser()
+        with open(info_file) as stream:
+            parser.read_string("[info]\n" + stream.read())
+            return parser.getint("info", "NbFrame")
+
+    def get_most_frequent_length(self):
 
         n_frames = []
-        parser = ConfigParser()
 
         for idx in range(len(self)):
+            n_frames.append(self.get_sequence_length(idx))
 
-            patient_file, _ = self._get_patient_data(idx)
-            patient_dir = patient_file[:11]
-            view = patient_file[12:15]
-            info_file = Path.cwd().joinpath(
-                "data", "database_nifti", patient_dir, f"Info_{view}.cfg"
-            )
-            with open(info_file) as stream:
-                parser.read_string("[info]\n" + stream.read())
-                n_frames.append(parser.getint("info", "NbFrame"))
+        most_frequent_length = Counter(n_frames).most_common(1)[0][0]
 
-        plt.hist(n_frames, bins=max(n_frames))
+        plt.hist(n_frames, bins=most_frequent_length)
         plt.xlabel("Number of Frames")
         plt.ylabel("Frequency")
         plt.savefig("number_of_images.png", bbox_inches="tight")
+
+        return most_frequent_length
+
+    def create_most_frequent_length_subset(self):
+        most_frequent_length = self.get_most_frequent_length()
+        subset_indices = [idx for idx in range(len(self)) if self.get_sequence_length(idx) == most_frequent_length]
+        return Subset(self, subset_indices)
