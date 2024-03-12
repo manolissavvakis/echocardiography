@@ -20,15 +20,20 @@ class CustomImageDataset(Dataset):
 
         self.path = path
 
+        def set_seq(patient: str):
+            return f"{patient[:15]}_half_sequence{patient[18:]}"
+        
         self.training_data = pd.read_csv(
             Path.joinpath(self.path, "train.csv"),
             usecols=["patient_id", "pathological_risk_label"],
         )
+        self.training_data["patient_id"] = self.training_data["patient_id"].apply(set_seq)
 
         self.validation_data = pd.read_csv(
             Path.joinpath(self.path, "val.csv"),
             usecols=["patient_id", "pathological_risk_label"],
         )
+        self.validation_data["patient_id"] = self.validation_data["patient_id"].apply(set_seq)
 
         self.transform = transform
 
@@ -66,7 +71,7 @@ class CustomImageDataset(Dataset):
 
             image, label = self.transformations(image, label)
 
-        return image, label, patient_dir
+        return image, label
 
     def _get_patient_data(self, idx):
 
@@ -82,18 +87,13 @@ class CustomImageDataset(Dataset):
 
         training_subset = Subset(self, list(range(len(self.training_data))))
 
-        validation_subset = Subset(self, list(range(len(self.validation_data))))
+        validation_subset = Subset(self, list(range(len(self.training_data), len(self))))
 
         return training_subset, validation_subset
 
     def transformations(self, image, label):
 
-        tensor_resize = transforms.Compose(
-            [
-                transforms.ToTensor(),
-                transforms.Resize((256, 256), antialias=True),
-            ]
-        )
+        resize_tensor = transforms.Resize((256, 256), antialias=True)
 
         def normalise(sample):
             """
@@ -114,7 +114,8 @@ class CustomImageDataset(Dataset):
 
             return sample
 
-        image = normalise(tensor_resize(image))
+        image = torch.Tensor(image)
+        image = normalise(resize_tensor(image.unsqueeze(0)))
 
         label = torch.tensor(label)
 
@@ -131,23 +132,30 @@ class CustomImageDataset(Dataset):
             parser.read_string("[info]\n" + stream.read())
             return parser.getint("info", "NbFrame")
 
-    def get_most_frequent_length(self):
+    def get_most_frequent_length(self, n_most_common = 1):
 
         n_frames = []
 
         for idx in range(len(self)):
             n_frames.append(self.get_sequence_length(idx))
 
-        most_frequent_length = Counter(n_frames).most_common(1)[0][0]
+        most_common_list = Counter(n_frames).most_common(n_most_common)
+        most_frequent_length_list = []
+        for idx in range(n_most_common):
+            most_frequent_length_list.append(most_common_list[idx][0])
 
-        plt.hist(n_frames, bins=most_frequent_length)
+        plt.hist(n_frames, bins=most_frequent_length_list[0])
         plt.xlabel("Number of Frames")
         plt.ylabel("Frequency")
         plt.savefig("number_of_images.png", bbox_inches="tight")
 
-        return most_frequent_length
+        return most_frequent_length_list
 
     def create_most_frequent_length_subset(self):
-        most_frequent_length = self.get_most_frequent_length()
-        subset_indices = [idx for idx in range(len(self)) if self.get_sequence_length(idx) == most_frequent_length]
-        return Subset(self, subset_indices)
+        most_frequent_lengths = self.get_most_frequent_length()
+        training_indices = [idx for idx in range(len(self.training_data)) if self.get_sequence_length(idx) in most_frequent_lengths]
+        validation_indices = [self._get_correct_idx(idx) for idx in range(len(self.training_data), len(self)) if self.get_sequence_length(idx) in most_frequent_lengths]
+
+        self.training_data = self.training_data.iloc[training_indices, :].reset_index(drop=True)
+        self.validation_data = self.validation_data.iloc[validation_indices, :].reset_index(drop=True)
+        return self
