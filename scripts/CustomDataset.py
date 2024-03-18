@@ -12,29 +12,36 @@ import torchvision.transforms as transforms
 from configparser import ConfigParser
 from matplotlib import pyplot as plt
 from collections import Counter
+import random
+import numpy as np
 
 
 class CustomImageDataset(Dataset):
 
-    def __init__(self, path: str, transform: bool):
+    def __init__(self, path: str, transform: bool, common_sequences = 1):
 
         self.path = path
 
         def set_seq(patient: str):
             return f"{patient[:15]}_half_sequence{patient[18:]}"
-        
+
         self.training_data = pd.read_csv(
             Path.joinpath(self.path, "train.csv"),
             usecols=["patient_id", "pathological_risk_label"],
         )
-        self.training_data["patient_id"] = self.training_data["patient_id"].apply(set_seq)
+        self.training_data["patient_id"] = self.training_data["patient_id"].apply(
+            set_seq
+        )
 
         self.validation_data = pd.read_csv(
             Path.joinpath(self.path, "val.csv"),
             usecols=["patient_id", "pathological_risk_label"],
         )
-        self.validation_data["patient_id"] = self.validation_data["patient_id"].apply(set_seq)
+        self.validation_data["patient_id"] = self.validation_data["patient_id"].apply(
+            set_seq
+        )
 
+        self.most_frequent_lengths = self._get_most_frequent_length(common_sequences)
         self.transform = transform
 
     def __len__(self):
@@ -67,6 +74,19 @@ class CustomImageDataset(Dataset):
 
         image = sitk.GetArrayFromImage(image)
 
+        if len(self.most_frequent_lengths) > 1:
+            diff = image.shape[0] - self.most_frequent_lengths[0]
+            if image.shape[0] > self.most_frequent_lengths[0]:
+                imgs_to_delete = random.sample(range(1, image.shape[0]), diff)
+                image = np.delete(image, imgs_to_delete, axis=0)
+            else:
+                imgs_to_fill = np.zeros(
+                    [abs(diff), image.shape[1], image.shape[2]], dtype=np.float32
+                )
+                image = np.concatenate(
+                    (image[:-1], imgs_to_fill, image[np.newaxis, -1]), axis=0
+                )
+
         if self.transform:
 
             image, label = self.transformations(image, label)
@@ -87,7 +107,9 @@ class CustomImageDataset(Dataset):
 
         training_subset = Subset(self, list(range(len(self.training_data))))
 
-        validation_subset = Subset(self, list(range(len(self.training_data), len(self))))
+        validation_subset = Subset(
+            self, list(range(len(self.training_data), len(self)))
+        )
 
         return training_subset, validation_subset
 
@@ -125,14 +147,16 @@ class CustomImageDataset(Dataset):
         patient_file, _ = self._get_patient_data(idx)
         patient_dir = patient_file[:11]
         view = patient_file[12:15]
-        info_file = Path.cwd().joinpath("data", "database_nifti", patient_dir, f"Info_{view}.cfg")
-        
+        info_file = Path.cwd().joinpath(
+            "data", "database_nifti", patient_dir, f"Info_{view}.cfg"
+        )
+
         parser = ConfigParser()
         with open(info_file) as stream:
             parser.read_string("[info]\n" + stream.read())
             return parser.getint("info", "NbFrame")
 
-    def get_most_frequent_length(self, n_most_common = 1):
+    def _get_most_frequent_length(self, n_most_common=1):
 
         n_frames = []
 
@@ -152,10 +176,21 @@ class CustomImageDataset(Dataset):
         return most_frequent_length_list
 
     def create_most_frequent_length_subset(self):
-        most_frequent_lengths = self.get_most_frequent_length()
-        training_indices = [idx for idx in range(len(self.training_data)) if self.get_sequence_length(idx) in most_frequent_lengths]
-        validation_indices = [self._get_correct_idx(idx) for idx in range(len(self.training_data), len(self)) if self.get_sequence_length(idx) in most_frequent_lengths]
+        training_indices = [
+            idx
+            for idx in range(len(self.training_data))
+            if self.get_sequence_length(idx) in self.most_frequent_lengths
+        ]
+        validation_indices = [
+            self._get_correct_idx(idx)
+            for idx in range(len(self.training_data), len(self))
+            if self.get_sequence_length(idx) in self.most_frequent_lengths
+        ]
 
-        self.training_data = self.training_data.iloc[training_indices, :].reset_index(drop=True)
-        self.validation_data = self.validation_data.iloc[validation_indices, :].reset_index(drop=True)
+        self.training_data = self.training_data.iloc[training_indices, :].reset_index(
+            drop=True
+        )
+        self.validation_data = self.validation_data.iloc[
+            validation_indices, :
+        ].reset_index(drop=True)
         return self

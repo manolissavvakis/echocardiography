@@ -164,9 +164,10 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     for fold in Path.cwd().joinpath("data", quality[0], "folds").glob("*"):
-        dataset = CustomImageDataset(fold, True)
+        dataset = CustomImageDataset(fold, transform=True, common_sequences=1)
         if not fill_sequence:
             dataset = dataset.create_most_frequent_length_subset()
+            dataset[0][0]
         train_dataset, val_dataset = dataset.split_data()
 
         # Define model.
