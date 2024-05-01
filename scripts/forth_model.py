@@ -5,6 +5,8 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 from torch import nn
+from sklearn.metrics import confusion_matrix
+import logging
 
 
 def get_patient_data(path):
@@ -67,7 +69,7 @@ def train(model, epoch, batch_size, training_set, device):
     )
 
 
-def validation(model, epoch, batch_size, validation_set, device):
+def validation(model, epoch, batch_size, validation_set, logger, device):
     """
     Validation of the model.
 
@@ -76,6 +78,7 @@ def validation(model, epoch, batch_size, validation_set, device):
     :param batch_size: batch size to use for the forward pass
     :param validation_set: dataframe used as validation data.
     :param device: processing device
+    :param logger: Logger object
     :return: average loss of the validation.
     """
 
@@ -84,8 +87,7 @@ def validation(model, epoch, batch_size, validation_set, device):
     valLoader = DataLoader(validation_set, batch_size=batch_size, shuffle=True)
 
     criterion = nn.CrossEntropyLoss()
-    correct = 0
-    total = 0
+    labels_list, predictions_list = [], []
     running_vloss = 0.0
 
     with torch.no_grad():
@@ -103,16 +105,25 @@ def validation(model, epoch, batch_size, validation_set, device):
 
             # prediction
             _, predicted_label = torch.max(output, 0)
+            labels_list = labels_list.append(labels)
+            predictions_list = predictions_list.append(predicted_labels)
             total += 1
             correct += (predicted_label == label).sum().item()
 
-        # accuracy
-        accuracy = correct / total
+        # confusion matrix
+        tn, fp, fn, tp = confusion_matrix(labels_list, predictions_list).ravel()
 
-        # average loss of the validation
-        avg_loss = running_vloss / total
+        # accuracy, precision, sensitivity
+        accuracy = (tp + tn)/ (tn + fp + fn + tp)
+        precision = tp / (tp + fp)
+        sensitivity = tp / (tp + fn)
 
-        print(f"Accuracy of the network on {total} images: {accuracy*100:.2f}")
+        logger.info(f"Epoch: {epoch}, accuracy: {accuracy}, precision: {precision}, sensitivity: {sensitivity}, avg_loss: {avg_loss}")
+
+        print(f"Metrics of the network on {total} images")
+        print(f"Accuracy: {accuracy*100:.2f}")
+        print(f"Precision: {precision*100:.2f}")
+        print(f"Sensitivity: {sensitivity*100:.2f}")
         print(
             f"Average validation loss of epoch {epoch+1}, using {total} images: {avg_loss}"
         )
@@ -150,10 +161,20 @@ def main():
     classes = 2
     best_loss = 1e6
     fill_sequence = False
+    
+    logging.basicConfig(filename="training.log", 
+					format='%(asctime)s %(message)s', 
+					filemode='w') 
+
+    # Create logger object
+    logger=logging.getLogger()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     for fold in Path.cwd().joinpath("data", quality[0], "folds").glob("*"):
+    
+        logger.info(f"Fold: {fold}")
+        
         dataset = CustomSequenceDataset(fold, transform=True, common_sequences=1)
 
         # if fill_sequence == true, fill or reduce dataset's common sequences to meet the length of the most common.
@@ -173,7 +194,7 @@ def main():
 
             # Validation step
             avg_loss, accuracy = validation(
-                model, epoch, None, validation_dataset, device
+                model, epoch, None, validation_dataset, logger, device
             )
 
             # Save the best model.
