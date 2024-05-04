@@ -1,0 +1,11 @@
+# Ignore pycache folder
+__pycache__/
+
+# Ignore dataset folders
+data/
+
+# Ignore powerpoint files.
+*.pptx
+
+# Ignore ipynb files.
+*.ipynb
