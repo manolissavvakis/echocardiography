@@ -1,5 +1,5 @@
 import pandas as pd
-from CustomDataset import CustomSequenceDataset, CustomValDataset
+from CustomDataset import CustomSequenceDataset, CustomValDataset, CustomTrainDataset
 from CustomCnn import CustomCnn
 from pathlib import Path
 import torch
@@ -160,7 +160,6 @@ def main():
     epochs, batch_size = 5000, 16
     classes = 2
     best_loss = 1e6
-    fill_sequence = False
     
     logging.basicConfig(filename="training.log", 
 					format='%(asctime)s %(message)s', 
@@ -175,13 +174,9 @@ def main():
     
         logger.info(f"Fold: {fold}")
         
-        dataset = CustomSequenceDataset(fold, transform=True, common_sequences=1)
-
-        # if fill_sequence == true, fill or reduce dataset's common sequences to meet the length of the most common.
-        if not fill_sequence:
-            dataset = dataset.create_most_frequent_length_subset()
-
+        dataset = CustomSequenceDataset(fold, transform=True)
         validation_dataset = CustomValDataset(dataset)
+        training_dataset = CustomTrainDataset(dataset)
 
         # Define model.
         model = CustomCnn(classes)
@@ -190,7 +185,7 @@ def main():
         for epoch in range(epochs):
 
             # Training step
-            train(model, epoch, batch_size, dataset.training_data, device)
+            train(model, epoch, batch_size, training_dataset, device)
 
             # Validation step
             avg_loss, accuracy = validation(

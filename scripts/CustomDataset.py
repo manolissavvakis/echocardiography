@@ -21,7 +21,7 @@ class CustomSequenceDataset(Dataset):
         Default value is 1 (keep only the most common).
     """
 
-    def __init__(self, path: str, transform: bool, common_sequences=1):
+    def __init__(self, path: str, transform: bool):
 
         self.path = path
 
@@ -44,7 +44,7 @@ class CustomSequenceDataset(Dataset):
             set_seq
         )
 
-        self.most_frequent_lengths = self._get_most_frequent_length(common_sequences)
+        self.most_frequent_length = self._get_most_frequent_length()
         self.transform = transform
 
     def __len__(self):
@@ -84,19 +84,18 @@ class CustomSequenceDataset(Dataset):
         image = sitk.GetArrayFromImage(image)
         image = image[None]
 
-        if len(self.most_frequent_lengths) > 1:
-            sequence_length = image.shape[-3]
-            diff = sequence_length - self.most_frequent_lengths[0]
-            if diff > 0:
-                imgs_to_delete = random.sample(range(1, sequence_length), diff)
-                image = np.delete(image, imgs_to_delete, axis=1)
-            else:
-                imgs_to_fill = np.zeros(
-                    [1, abs(diff), image.shape[-2], image.shape[-1]], dtype=np.float32
-                )
-                image = np.concatenate(
-                    (image[:, :-1], imgs_to_fill, image[None, :, -1]), axis=1
-                )
+        sequence_length = image.shape[-3]
+        diff = sequence_length - self.most_frequent_length
+        if diff > 0:
+            imgs_to_delete = random.sample(range(1, sequence_length), diff)
+            image = np.delete(image, imgs_to_delete, axis=1)
+        else:
+            imgs_to_fill = np.zeros(
+                [1, abs(diff), image.shape[-2], image.shape[-1]], dtype=np.float32
+            )
+            image = np.concatenate(
+                (image[:, :-1], imgs_to_fill, image[None, :, -1]), axis=1
+            )
 
         if self.transform:
 
@@ -162,7 +161,7 @@ class CustomSequenceDataset(Dataset):
             parser.read_string("[info]\n" + stream.read())
             return parser.getint("info", "NbFrame")
 
-    def _get_most_frequent_length(self, n_most_common=1):
+    def _get_most_frequent_length(self):
         """
         Get the 'n_most_common' most common sequence lengths found in the dataset.
         """
@@ -172,18 +171,9 @@ class CustomSequenceDataset(Dataset):
         for idx in range(len(self)):
             n_frames.append(self.get_sequence_length(idx))
 
-        most_common_list = Counter(n_frames).most_common(n_most_common)
-        most_frequent_length_list = []
-        for idx in range(n_most_common):
-            most_frequent_length_list.append(most_common_list[idx][0])
+        most_common_length = Counter(n_frames).most_common(1)[0][0]
 
-        # Plot a histogram with the lengths found.
-        plt.hist(n_frames, bins=most_frequent_length_list[0])
-        plt.xlabel("Number of Frames")
-        plt.ylabel("Frequency")
-        plt.savefig("number_of_images.png", bbox_inches="tight")
-
-        return most_frequent_length_list
+        return most_common_length
 
     def create_most_frequent_length_subset(self):
         """
@@ -192,12 +182,12 @@ class CustomSequenceDataset(Dataset):
         training_indices = [
             idx
             for idx in range(len(self.training_data))
-            if self.get_sequence_length(idx) in self.most_frequent_lengths
+            if self.get_sequence_length(idx) in self.most_frequent_length
         ]
         validation_indices = [
             self._get_correct_idx(idx)
             for idx in range(len(self.training_data), len(self))
-            if self.get_sequence_length(idx) in self.most_frequent_lengths
+            if self.get_sequence_length(idx) in self.most_frequent_length
         ]
 
         self.training_data = self.training_data.iloc[training_indices, :].reset_index(
@@ -208,6 +198,75 @@ class CustomSequenceDataset(Dataset):
         ].reset_index(drop=True)
         return self
 
+class CustomTrainDataset(Dataset):
+
+    def __init__(self, dataset: CustomSequenceDataset):
+
+        self.training_data = dataset.training_data
+        self.most_frequent_length = dataset.most_frequent_length
+        self.transform = dataset.transform
+
+    def __len__(self):
+
+        return len(self.training_data)
+
+    def __getitem__(self, idx):
+
+        patient_file, label = self.training_data.iloc[idx]
+        patient_dir = patient_file[:11]
+
+        image = sitk.ReadImage(
+            Path.cwd().joinpath("data", "database_nifti", patient_dir, patient_file)
+        )
+
+        image = sitk.GetArrayFromImage(image)
+        image = image[None]
+
+        sequence_length = image.shape[-3]
+        diff = sequence_length - self.most_frequent_length
+        if diff > 0:
+            imgs_to_delete = random.sample(range(1, sequence_length), diff)
+            image = np.delete(image, imgs_to_delete, axis=1)
+        else:
+            imgs_to_fill = np.zeros(
+                [1, abs(diff), image.shape[-2], image.shape[-1]], dtype=np.float32
+            )
+            image = np.concatenate(
+                (image[:, :-1], imgs_to_fill, image[None, :, -1]), axis=1
+            )
+
+        if self.transform:
+
+            image, label = self.transformations(image, label)
+
+        return image, label
+
+    def transformations(self, image, label):
+        """
+        Apply transforms to a sequence. Transforms include:
+            - Resize each image to (256, 256)
+            - Normalise each image's pixels to [0., 1.]
+            - return sequence and label as tensors
+        """
+
+        resize_tensor = transforms.Resize((256, 256), antialias=True)
+
+        def normalise(sample):
+
+            dims = sample.size()
+            sample = sample.view(dims[0], -1)
+            sample -= sample.min(1, keepdim=True)[0]
+            sample /= sample.max(1, keepdim=True)[0]
+            sample = sample.view(dims)
+
+            return sample
+
+        image = torch.Tensor(image)
+        image = normalise(resize_tensor(image))
+
+        label = torch.tensor(label)
+
+        return image, label
 
 class CustomValDataset(Dataset):
     """
@@ -231,7 +290,7 @@ class CustomValDataset(Dataset):
             drop=True
         )
 
-        self.most_frequent_lengths = dataset.most_frequent_lengths
+        self.most_frequent_length = dataset.most_frequent_length
         self.transform = dataset.transform
 
     def __len__(self):
@@ -270,9 +329,9 @@ class CustomValDataset(Dataset):
 
             sequence_length = image.shape[-3]
 
-            if sequence_length != self.most_frequent_lengths[0]:
+            if sequence_length != self.most_frequent_length:
 
-                diff = sequence_length - self.most_frequent_lengths[0]
+                diff = sequence_length - self.most_frequent_length
                 if diff > 0:
                     imgs_to_delete = random.sample(range(1, sequence_length), diff)
                     image = np.delete(image, imgs_to_delete, axis=1)
