@@ -65,7 +65,9 @@ class VideoAugmentor:
 
             # Save the augmented video in the general videos folder and csv files.
             output_file_name = f"{video_row['FileName']}_augmented_{count_augmented}"
-            self.save_video(augmented_video, str(self.videos_dir), fps)
+            self.save_video(
+                augmented_video, str(self.videos_dir / output_file_name) + ".avi", fps
+            )
             self.save_csv(
                 output_file_name, id, self.videos_dir.parent / "FileListWithLabels.csv"
             )
@@ -105,7 +107,7 @@ class VideoAugmentor:
         cap.release()
 
         # Convert to tv_tensor for torchvision.transforms.v2 compatibility
-        frames = np.asarray(frames)
+        frames = np.asarray(frames, dtype=np.float32)
         frames = tv_tensors.Video(frames)
 
         # Apply transformations using torchvision
@@ -125,7 +127,7 @@ class VideoAugmentor:
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height), False)
 
         for frame in frames:
-            out.write(frame)
+            out.write(frame.squeeze(axis=0))
 
         out.release()
 
@@ -135,8 +137,8 @@ class VideoAugmentor:
 
             writer_object = csv.writer(file_list, delimiter=",")
 
-            row = self.file_list.iloc[index]["FileName"] = video_file_to_save
-            writer_object.writerow(row)
+            row = self.input_csv.iloc[index]
+            writer_object.writerow(row.replace(row["FileName"], video_file_to_save))
 
             # Close the file object
             file_list.close()
