@@ -1,7 +1,6 @@
 import pandas as pd
 import cv2
 import torch
-from pathlib import Path
 from torch.utils.data import Dataset
 import torchvision.transforms as transforms
 from collections import Counter
@@ -19,16 +18,13 @@ class CustomSequenceDataset(Dataset):
         Default value is 1 (keep only the most common).
     """
 
-    def __init__(self, data: str, videos_dir: str):
+    def __init__(self, data: str, videos_dir: str, transform=True):
 
-        self.file_list = pd.read_csv(
-            data,
-            usecols=["FileName", "NumberOfFrames", "Label"],
-        )
+        self.file_list = pd.read_csv(data)
 
         self.videos_dir = videos_dir
         self.most_frequent_length = self._get_most_frequent_length()
-        # self.transform = transform
+        self.transform = transform
 
     def __len__(self):
 
@@ -36,28 +32,29 @@ class CustomSequenceDataset(Dataset):
 
     def __getitem__(self, idx):
 
-        patient_file, _, label = self.file_list.iloc[idx]
+        patient_file, label, fps, num_frames = self.file_list.loc[
+            idx, ["FileName", "Label", "FPS", "NumberOfFrames"]
+        ]
         video_path = f"{self.videos_dir}/{patient_file}.avi"
 
-        sequence = self.extract_frames(video_path)
+        sequence = self.extract_frames(video_path, fps, num_frames)
 
-        # sequence shape = (depth, height, width)
-        sequence_length = sequence.shape[-3]
+        # sequence shape = (depth, channel, height, width)
+        sequence_length = sequence.shape[-4]
         diff = sequence_length - self.most_frequent_length
         if diff > 0:
             imgs_to_delete = random.sample(range(1, sequence_length), diff)
             sequence = np.delete(sequence, imgs_to_delete, axis=0)
         else:
             imgs_to_fill = np.ones(
-                [abs(diff), sequence.shape[-2], sequence.shape[-1]], dtype=np.float32
+                [abs(diff)] + list(sequence.shape[-3:]), dtype=np.float32
             )
             sequence = np.concatenate(
-                (sequence[:-1], imgs_to_fill, sequence[None, -1]), axis=0
+                (sequence[:-1], imgs_to_fill, sequence[-1:]), axis=0
             )
 
-        # transformations() returns sequence with 1 extra axis (channel)
-        # shape is (1, depth, height, width)
-        sequence, label = self.transformations(sequence, label)
+        if self.transform:
+            sequence, label = self.transformations(sequence, label)
 
         return sequence, label
 
@@ -84,7 +81,6 @@ class CustomSequenceDataset(Dataset):
         sequence = torch.Tensor(sequence)
         sequence = normalise(resize_tensor(sequence))
         # sequence = transforms.Normalize(0.5, 0.5)
-        sequence = sequence[None]
 
         label = torch.tensor(label)
 
@@ -98,30 +94,40 @@ class CustomSequenceDataset(Dataset):
         n_frames = []
 
         for idx in range(len(self)):
-            n_frames.append(
-                self.file_list.iloc[
-                    idx, self.file_list.columns.get_loc("NumberOfFrames")
-                ]
-            )
+            n_frames.append(self.file_list.iloc[idx]["NumberOfFrames"])
 
         most_common_length = Counter(n_frames).most_common(1)[0][0]
 
         return most_common_length
 
-    def extract_frames(self, video_file):
+    def extract_frames(self, video_file, fps, num_frames):
         """
-        Convert a video file to frames (numpy array).
+        Extract a specified number of frames from the video at the given frame rate.
+
+        :param video_file: Path to the video file.
+        :param num_frames: Number of frames to extract.
+        :param fps: Desired frames per second.
+        :return: A numpy array of extracted frames.
         """
 
         cap = cv2.VideoCapture(video_file)
         frames = []
-        while cap.isOpened():
+        frame_count = 0
+        frame_interval = int(cap.get(cv2.CAP_PROP_FPS) / fps)
+
+        while cap.isOpened() and frame_count < num_frames:
             ret, frame = cap.read()
             if not ret:
                 break
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            frames.append(frame)
+            if frame_count % frame_interval == 0:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                frames.append(frame)
+            frame_count += 1
+
         cap.release()
+
+        # Shape is (D, H, W)
         frames = np.array(frames)
 
-        return frames
+        # Return shape is (D, C, H, W)
+        return np.expand_dims(frames, axis=1)
