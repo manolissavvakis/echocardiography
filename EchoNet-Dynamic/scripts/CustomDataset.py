@@ -39,18 +39,18 @@ class CustomSequenceDataset(Dataset):
 
         sequence = self.extract_frames(video_path, fps, num_frames)
 
-        # sequence shape = (depth, channel, height, width)
-        sequence_length = sequence.shape[-4]
+        # sequence shape = (C, D, H, W)
+        sequence_length = sequence.shape[-3]
         diff = sequence_length - self.most_frequent_length
         if diff > 0:
             imgs_to_delete = random.sample(range(1, sequence_length), diff)
-            sequence = np.delete(sequence, imgs_to_delete, axis=0)
+            sequence = np.delete(sequence, imgs_to_delete, axis=1)
         else:
             imgs_to_fill = np.ones(
-                [abs(diff)] + list(sequence.shape[-3:]), dtype=np.float32
+                [abs(diff)] + list(sequence.shape[-2:]), dtype=np.float32
             )
             sequence = np.concatenate(
-                (sequence[:-1], imgs_to_fill, sequence[-1:]), axis=0
+                (sequence[:, :-1], imgs_to_fill[None], sequence[:, -1:]), axis=1
             )
 
         if self.transform:
@@ -129,5 +129,5 @@ class CustomSequenceDataset(Dataset):
         # Shape is (D, H, W)
         frames = np.array(frames)
 
-        # Return shape is (D, C, H, W)
-        return np.expand_dims(frames, axis=1)
+        # Return shape is (C, D, H, W)
+        return np.expand_dims(frames, axis=0)

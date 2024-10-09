@@ -6,6 +6,11 @@ from pathlib import Path
 from PIL import Image
 import csv
 from torchvision import tv_tensors
+import torchio as tio
+import torch
+
+
+import matplotlib.pyplot as plt
 
 
 class VideoAugmentor:
@@ -19,38 +24,31 @@ class VideoAugmentor:
     ):
         self.input_csv = input_csv
         self.videos_dir = videos_dir
-        self.target_label = target_label
         self.target_size = target_size
-        self.split = split
 
-        if self.split is not ("train" or "validation" or "test"):
+        if split is not ("train" or "validation" or "test"):
             raise Exception("Split must be train, validation or test")
 
-        # Filter videos with the target label (e.g., label 1)
+        # Filter videos with the target label (e.g., label 1) and split selected.
         self.target_class_videos = self.input_csv[
-            self.input_csv["Label"] == target_label
+            (self.input_csv["Label"] == target_label)
+            & (self.input_csv["Split"] == split.upper())
         ]
 
-        # Define the torchvision transforms for grayscale images
-        self.transform = v2.Compose(
+        # Define the torchio transforms for grayscale images
+        self.transform = tio.transforms.Compose(
             [
-                v2.RandomRotation(
-                    degrees=(-30, 30)
-                ),  # Random rotation between -30 and 30 degrees
-                v2.RandomHorizontalFlip(
-                    p=0.5
-                ),  # Horizontal flip with a probability of 0.5
-                v2.RandomVerticalFlip(
-                    p=0.5
-                ),  # Vectical flip with a probability of 0.5,
-                v2.RandomInvert(p=0.5),
-                v2.RandomAdjustSharpness(
-                    sharpness_factor=np.random.uniform(0, 2), p=0.5
+                tio.transforms.RandomFlip(axes=(1, 2), flip_probability=0.5, p=0.25),
+                tio.transforms.RandomAffine(
+                    scales=(0.9, 1.1), translation=(-20, 20), p=0.25
                 ),
+                tio.transforms.RandomSpike(num_spikes=2, p=0.25),
+                tio.transforms.RandomGhosting(num_ghosts=(1, 3), axes=(1, 2), p=0.25),
+                tio.transforms.RandomBlur(std=(0, 2), p=0.25),
+                tio.transforms.RandomBiasField(p=0.25),
+                tio.transforms.RandomNoise(p=0.25),
             ]
         )
-
-        print("test")
 
     def augment_and_save(self):
         count_augmented = 0
@@ -66,7 +64,9 @@ class VideoAugmentor:
             # Save the augmented video in the general videos folder and csv files.
             output_file_name = f"{video_row['FileName']}_augmented_{count_augmented}"
             self.save_video(
-                augmented_video, str(self.videos_dir / output_file_name) + ".avi", fps
+                augmented_video.squeeze(axis=0),
+                str(self.videos_dir / output_file_name) + ".avi",
+                fps,
             )
             self.save_csv(
                 output_file_name, id, self.videos_dir.parent / "FileListWithLabels.csv"
@@ -100,7 +100,7 @@ class VideoAugmentor:
 
                 # Convert back to NumPy array
                 # frame = np.array(frame)
-                frames.append(np.expand_dims(frame, axis=0))
+                frames.append(frame)
 
             frame_count += 1
 
@@ -108,14 +108,15 @@ class VideoAugmentor:
 
         # Convert to tv_tensor for torchvision.transforms.v2 compatibility
         frames = np.asarray(frames, dtype=np.float32)
-        frames = tv_tensors.Video(frames)
+        frames = tv_tensors.Video(np.expand_dims(frames, axis=0))
 
         # Apply transformations using torchvision
-        frames = self.transform(frames)
+        # torch.permute(frames, (0, 2, 3, 1))
+        # frames = self.transform(torch.permute(frames, (0, 2, 3, 1)))
+        frames = self.transform(torch.permute(frames, (0, 2, 3, 1)))
 
-        # Covnert back to numpy array
-        frames = frames.numpy()
-
+        # Convert back to numpy array
+        frames = torch.permute(frames, (0, 3, 1, 2)).numpy()
         return frames
 
     def save_video(self, frames, output_path, fps):
@@ -124,16 +125,16 @@ class VideoAugmentor:
 
         height, width = frames.shape[-2:]
         fourcc = cv2.VideoWriter_fourcc(*"XVID")
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height), False)
+        out = cv2.VideoWriter(output_path, fourcc, float(fps), (width, height), False)
 
         for frame in frames:
-            out.write(frame.squeeze(axis=0))
+            out.write(frame.astype(np.uint8))
 
         out.release()
 
     def save_csv(self, video_file_to_save, index, output_csv_file):
 
-        with open(output_csv_file, "a") as file_list:
+        with open(output_csv_file, "a", newline="") as file_list:
 
             writer_object = csv.writer(file_list, delimiter=",")
 
