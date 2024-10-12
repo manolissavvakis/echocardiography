@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 
 def main():
 
-    epochs, train_batch_size, val_batch_size = 500, 32, 16
+    epochs, train_batch_size, val_batch_size = 30, 32, 16
     best_loss = 1e6
 
     logging.basicConfig(
