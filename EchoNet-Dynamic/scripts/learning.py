@@ -4,7 +4,7 @@ import torch
 import numpy as np
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from torch import nn
-from sklearn.metrics import accuracy_score, recall_score, precision_score
+from sklearn.metrics import accuracy_score, recall_score, precision_score, roc_auc_score
 
 
 def train(model: CustomCnn, epoch: int, batch_size: int, training_set: Dataset, device):
@@ -160,8 +160,6 @@ def test(
     labels_list, predictions_list = [], []
     total = 0
     correct = 0
-    correct_class_0 = 0
-    correct_class_1 = 0
 
     with torch.no_grad():
         for video, label in testLoader:
@@ -206,9 +204,10 @@ def test(
         accuracy = accuracy_score(labels_list, predictions_list)
         precision = precision_score(labels_list, predictions_list)
         sensitivity = recall_score(labels_list, predictions_list)
+        auc = roc_auc_score(labels_list, predictions_list)
 
         logger.info(
-            f"Test completed: Total: {total}, accuracy: {accuracy}, precision: {precision}, sensitivity: {sensitivity}"
+            f"Test completed: Total: {total}, accuracy: {accuracy}, precision: {precision}, sensitivity: {sensitivity}, AUC: {auc}"
         )
 
         total_class_0 = sum(1 for x in labels_list if x == 0)

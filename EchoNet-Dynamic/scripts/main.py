@@ -24,7 +24,7 @@ def main(training, epoch_to_load):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     if training:
-    
+
         file_list = csv_with_labels()
         split_data(file_list)
 
@@ -35,8 +35,10 @@ def main(training, epoch_to_load):
         validation_dataset = CustomSequenceDataset("val_files.csv", str(val_data))
 
         epochs, train_batch_size, val_batch_size = 10, 32, 16
-        logger.info(f"Parameters used for this experiment: epochs: {epochs}, training batch size: {train_batch_size}, validation batch size: {val_batch_size")
-        
+        logger.info(
+            f"Parameters used for this experiment: epochs: {epochs}, training batch size: {train_batch_size}, validation batch size: {val_batch_size}"
+        )
+
         best_loss = 1e6
 
         # Define model.
@@ -59,6 +61,7 @@ def main(training, epoch_to_load):
 
             avg_loss_train.append(train_loss)
             avg_loss_val.append(val_loss)
+            accuracy_vec.append(accuracy)
 
             # Save the best model.
             if val_loss < best_loss:
@@ -68,7 +71,9 @@ def main(training, epoch_to_load):
                     **{"val_loss": val_loss, "accuracy": accuracy},
                 )
                 best_loss = val_loss
-                logger.info(f"Model saved. Valdation loss {val_loss}, Accuracy {accuracy}")
+                logger.info(
+                    f"Model saved. Validation loss {val_loss}, Accuracy {accuracy}"
+                )
 
             print(f"Epoch {epoch+1} is completed")
 
@@ -105,15 +110,28 @@ def main(training, epoch_to_load):
         test(model, log_metrics, test_batch_size, test_dataset, logger, device)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(description='Train/Test 3D Cnn using EchoNet-Dynamic dataset')
-    parser.add_argument('--training', action=argparse.BooleanOptionalAction, required=True, help='Test the network or not')
-    parser.add_argument('--epoch_to_load', type=int, default=None, help="The epoch to load, mandatory if --no-training is given.")
+    parser = argparse.ArgumentParser(
+        description="Train/Test 3D Cnn using EchoNet-Dynamic dataset"
+    )
+    parser.add_argument(
+        "--training",
+        action=argparse.BooleanOptionalAction,
+        required=True,
+        help="Test the network or not",
+    )
+    parser.add_argument(
+        "--epoch_to_load",
+        type=int,
+        default=None,
+        help="The epoch to load, mandatory if --no-training is given.",
+    )
     args = parser.parse_args()
 
     # If --no-training, epoch_to_load must be provided
     if not args.training and (args.epoch_to_load is None):
         parser.error("--epoch_to_load is required when --no-training is given.")
-    
+
+
     main(args.training, args.epoch_to_load)

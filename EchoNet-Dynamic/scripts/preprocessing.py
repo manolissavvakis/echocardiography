@@ -7,43 +7,25 @@ import shutil
 
 def split_data(file_list):
     
-    directories = [Path.cwd() / "train_data", Path.cwd() / "test_data", Path.cwd() / "validation_data"]
+    directories = [Path.cwd() / "train_data", Path.cwd() / "test_data", Path.cwd() / "val_data"]
+    video_dir = Path.cwd() / "Videos"
+    df = None
 
-    if not (train_dir.is_dir() or val_dir.is_dir() or test_dir.is_dir()):
-        df = pd.read_csv(file_list, delimiter=",")
-
-        train_df = df.loc[df["Split"] == "TRAIN"]
-        train_df.to_csv("train_files.csv", index=False)
-
-        val_df = df.loc[df["Split"] == "VAL"]
-        val_df.to_csv("val_files.csv", index=False)
-
-        test_df = df.loc[df["Split"] == "TEST"]
-        test_df.to_csv("test_files.csv", index=False)
-
-        for dir in directories:
-            dir.mkdir(exist_ok=True)
-
-        video_dir = Path.cwd() / "Videos"
-        
-        for video in train_df["FileName"].values:
-            video_path = f"{video_dir/video}.avi"
-            if glob.glob(video_path):
-                shutil.copy(video_path, directories[0])
-                
-        print("Copying files in directory " + str(directories[0]) + " is completed.")
-        
-        for video in test_df["FileName"].values:
-            video_path = f"{video_dir/video}.avi"
-            if glob.glob(video_path):
-                shutil.copy(video_path, directories[1])
-        print("Copying files in directory " + str(directories[1]) + " is completed.")
-        
-        for video in val_df["FileName"].values:
-            video_path = f"{video_dir/video}.avi"
-            if glob.glob(video_path):
-                shutil.copy(video_path, directories[2])
-        print("Copying files in directory " + str(directories[2]) + " is completed.")
+    for dir in directories:
+        if not dir.is_dir():        
+            dir.mkdir()
+            print(str(dir) + ' has been created.')
+            df = pd.read_csv(file_list, delimiter=",") if not df else None
+            split = dir.stem[:-5]
+            
+            split_df = df.loc[df["Split"] == split.upper()]
+            split_df.to_csv(f"{split}_files.csv", index=False)
+                    
+            for video in split_df["FileName"].values:
+                video_path = f"{video_dir/video}.avi"
+                if glob.glob(video_path):
+                    shutil.copy(video_path, dir)
+            print("Copying files in directory " + str(dir) + " is completed.")
 
 
 def csv_with_labels():
